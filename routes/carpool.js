@@ -1,49 +1,50 @@
 const express = require('express');
 const router = express.Router();
-const { auth, admin } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 const Carpool = require('../models/Carpool');
 const sendAdminNotification = require('../utils/mailer');
 
-// User creates a carpool offer
+// Create Carpool
 router.post('/', auth, async (req, res) => {
-    const { carName, time, location, price, gender, genderPreference } = req.body;
+    const { carName, time, location, price, gender, totalSeats } = req.body;
     try {
         const newCarpool = new Carpool({
             userId: req.user.id,
-            carName,
-            location,
-            time,
-            price,
-            gender,
-            genderPreference,
+            carName, time, location, price, 
+            gender, // Fixed from genderPreference to gender
+            totalSeats,
+            bookedSeats: 0
         });
         await newCarpool.save();
-        res.status(201).send(newCarpool);
+        await sendAdminNotification(newCarpool); // Email Admin
+        res.redirect('/');
     } catch (err) {
-        res.status(500).send('Server error.');
+        res.status(500).send('Error creating carpool');
     }
 });
 
-// Get all carpool offers (for users to view)
-router.get('/', auth, async (req, res) => {
+// Atomic Booking Logic
+router.post('/:id/book', auth, async (req, res) => {
+    const seats = parseInt(req.body.seats || 1);
     try {
-        const carpools = await Carpool.find().populate('userId', 'name');
-        res.status(200).send(carpools);
+        const carpool = await Carpool.findOneAndUpdate(
+            { 
+                _id: req.params.id,
+                userId: { $ne: req.user.id }, // Cannot book own ride
+                $expr: { $lte: [{ $add: ["$bookedSeats", seats] }, "$totalSeats"] }
+            },
+            { 
+                $inc: { bookedSeats: seats },
+                $push: { bookedBy: { user: req.user.id, seats } } 
+            },
+            { new: true }
+        );
+
+        if (!carpool) return res.status(400).send('Booking failed: Ride full or invalid.');
+        res.redirect('/');
     } catch (err) {
-        res.status(500).send('Server error.');
+        res.status(500).send('Server Error');
     }
 });
-
-// Admin manages (deletes) carpool offers
-router.delete('/:id', [auth, admin], async (req, res) => {
-    try {
-        const carpool = await Carpool.findByIdAndDelete(req.params.id);
-        if (!carpool) return res.status(404).send('Carpool offer not found.');
-        res.status(200).send('Carpool offer deleted successfully.');
-    } catch (err) {
-        res.status(500).send('Server error.');
-    }
-});
-
 
 module.exports = router;
