@@ -64,11 +64,19 @@
 					if (!rideBelongsToUser(carpool)) return;
 
 					const when = rideDate(carpool);
+					const userHasBooked =
+						carpool.bookedBy &&
+						carpool.bookedBy.some((b) => {
+							const bid = b.user ? (b.user._id ? b.user._id : b.user) : null;
+							return bid && String(bid) === String(user.id);
+						});
 
 					if (when > now) {
 						upcomingRides++;
-					} else {
+					} else if (isAdmin || userHasBooked) {
 						completedRides++;
+					} else {
+						cancelledRides++;
 					}
 				});
 			}
