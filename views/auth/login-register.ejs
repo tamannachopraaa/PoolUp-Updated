@@ -9,7 +9,7 @@
 			<% if (typeof error !== 'undefined' && error) { %>
 				<div class="auth-alert error"><%= error %></div>
 			<% } %>
-			<form action="/auth/login" method="POST" class="auth-form">
+			<form action="/auth/login" method="POST" class="auth-form" data-toast-message="Logged in successfully">
 				<label class="field">
 					<span>Email</span>
 					<input type="email" name="email" required>
@@ -18,7 +18,7 @@
 					<span>Password</span>
 					<input type="password" name="password" required>
 				</label>
-				<button type="submit" class="btn-gradient full-width">Login</button>
+				<button type="submit" class="btn-gradient full-width" data-loading-text="Logging in...">Login</button>
 			</form>
 			
 		</div>
@@ -35,7 +35,7 @@
 			<% if (typeof message !== 'undefined' && message) { %>
 				<div class="auth-alert success"><%= message %></div>
 			<% } %>
-			<form action="/auth/register" method="POST" class="auth-form">
+			<form action="/auth/register" method="POST" class="auth-form" data-toast-message="Account created successfully">
 				<label class="field">
 					<span>Full name</span>
 					<input type="text" name="name" required>
@@ -48,7 +48,7 @@
 					<span>Password</span>
 					<input type="password" name="password" required>
 				</label>
-				<button type="submit" class="btn-gradient full-width">Register</button>
+				<button type="submit" class="btn-gradient full-width" data-loading-text="Registering...">Register</button>
 			</form>
 			<p class="muted-note">By continuing, you agree to our terms and ride community guidelines.</p>
 		</div>

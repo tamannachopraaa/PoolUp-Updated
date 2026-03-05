@@ -1,5 +1,5 @@
 <div class="page-container">
-    <form action="/carpools" method="POST" class="form-container">
+    <form action="/carpools" method="POST" class="form-container" data-toast-message="Offer posted successfully">
         <div class="page-header">
             <h2>Create a New Carpool Offer</h2>
         </div>
@@ -14,6 +14,7 @@
         <div class="form-group">
             <label for="time">Departure Date & Time</label>
             <input type="datetime-local" id="time" name="time" required>
+            <small id="time-error" style="display:none;margin-top:0.4rem;color:#fca5a5;">Please select a future date and time.</small>
         </div>
         <div class="form-group">
             <label for="price">Price (per person, one way)</label>
@@ -22,6 +23,7 @@
         <div class="form-group">
             <label for="totalSeats">Total Seats Available</label>
             <input type="number" id="totalSeats" name="totalSeats" placeholder="e.g., 3" required>
+            <small style="display:block;margin-top:0.4rem;color:var(--text-secondary);">Tip: keep one seat less than actual capacity for comfort and safety.</small>
         </div>
         <div class="form-group">
              <label for="gender">Gender Preference for Riders</label>
@@ -31,7 +33,7 @@
                 <option value="female">Female Only</option>
              </select>
         </div>
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Upload Offer</button>
+        <button type="submit" class="btn btn-primary" style="width: 100%;" data-loading-text="Uploading...">Upload Offer</button>
     </form>
 </div>
 
@@ -44,12 +46,15 @@
     
     // Revalidate on form submit
     timeInput.closest('form').addEventListener('submit', function(e) {
+        const errorEl = document.getElementById('time-error');
         const selected = new Date(timeInput.value);
         const current = new Date();
         if (selected <= current) {
             e.preventDefault();
-            alert('Please select a future date and time for the ride.');
+            errorEl.style.display = 'block';
             timeInput.focus();
+        } else {
+            errorEl.style.display = 'none';
         }
     });
 </script>

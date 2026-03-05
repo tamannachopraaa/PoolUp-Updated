@@ -1,20 +1,11 @@
 <% if (typeof user !== 'undefined' && user) { %>
 	<div class="page-container">
-		<div class="page-header">
-			<h2>Welcome, <%= user.name %>!</h2>
-
-			<h3>
-				<% if (user.role === 'admin') { %>
-					Available Offers (Admin View)
-				<% } else { %>
-					Available Carpool Offers
-				<% } %>
-			</h3>
-		</div>
-
 		<%
 			const now = new Date();
 			const isAdmin = user.role === 'admin';
+			const activeFilters = filters || {};
+			const routeFilter = (activeFilters.route || '').toLowerCase().trim();
+			const statusFilter = (activeFilters.status || 'all').toLowerCase();
 
 			let upcomingRides = 0;
 			let completedRides = 0;
@@ -82,11 +73,51 @@
 					}
 				});
 			}
+
+			const filteredCarpools = (carpools || []).filter((carpool) => {
+				const rideTime = rideDate(carpool);
+				const isExpiredRide = rideTime <= now;
+				const ownerId = carpool.userId && (carpool.userId._id ? carpool.userId._id : carpool.userId);
+				const isOwner = ownerId && String(ownerId) === String(user.id);
+				const userHasBooked =
+					carpool.bookedBy &&
+					carpool.bookedBy.some((b) => {
+						const bid = b.user ? (b.user._id ? b.user._id : b.user) : null;
+						return bid && String(bid) === String(user.id);
+					});
+
+				let computedStatus = 'upcoming';
+				if (isExpiredRide && (isAdmin || isOwner || userHasBooked)) {
+					computedStatus = 'completed';
+				} else if (isExpiredRide) {
+					computedStatus = 'expired';
+				}
+
+				const seatsFree = (carpool.totalSeats || 0) - (carpool.bookedSeats || 0);
+				const routeMatches = !routeFilter || String(carpool.location || '').toLowerCase().includes(routeFilter);
+				const statusMatches = statusFilter === 'all' || statusFilter === computedStatus;
+
+				return routeMatches && statusMatches;
+			});
 		%>
+
+		<div class="dashboard-toolbar">
+			<div class="page-header">
+				<h2>Welcome, <%= user.name %>!</h2>
+
+				<h3>
+					<% if (user.role === 'admin') { %>
+						Available Offers (Admin View)
+					<% } else { %>
+						Available Carpool Offers
+					<% } %>
+				</h3>
+			</div>
+		</div>
 
 		<div class="summary-grid">
 			<div class="summary-card">
-				<div class="summary-icon">🚐</div>
+				<div class="summary-icon">🟦</div>
 				<div>
 					<p class="summary-label">Upcoming rides</p>
 					<p class="summary-value"><%= upcomingRides %></p>
@@ -103,7 +134,7 @@
 
 			<% if (!isAdmin) { %>
 				<div class="summary-card">
-					<div class="summary-icon">↩️</div>
+					<div class="summary-icon">⛔</div>
 					<div>
 						<p class="summary-label">Expired rides</p>
 						<p class="summary-value"><%= cancelledRides %></p>
@@ -112,15 +143,9 @@
 			<% } %>
 		</div>
 
-		<% if (user.role !== 'admin') { %>
-			<div style="text-align:center;margin-bottom:2rem;">
-				<a href="/carpools/new" class="btn btn-primary">Create a New Offer</a>
-			</div>
-		<% } %>
-
 		<div class="carpool-grid">
-			<% if (carpools && carpools.length > 0) { %>
-				<% carpools.forEach((carpool) => { %>
+			<% if (filteredCarpools && filteredCarpools.length > 0) { %>
+				<% filteredCarpools.forEach((carpool) => { %>
 					<%
 						const rideTime = rideDate(carpool);
 						const isExpiredRide = rideTime <= now;
@@ -129,6 +154,7 @@
 						let userHasBooked = false;
 						let userBooking = null;
 						let userInWaitlist = false;
+						let userWaitlistPosition = null;
 						const bookedUsers = [];
 						const waitlistedUsers = [];
 
@@ -146,12 +172,17 @@
 						}
 
 						if (carpool.waitlist) {
-							carpool.waitlist.forEach((w) => {
+							const orderedWaitlist = [...carpool.waitlist].sort(
+								(a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0)
+							);
+
+							orderedWaitlist.forEach((w, index) => {
 								const wid = w.user ? (w.user._id ? w.user._id : w.user) : null;
 								const waitlistName = w.user && w.user.name ? w.user.name : 'User';
 								waitlistedUsers.push(`${waitlistName} (${w.seats || 1})`);
 								if (wid && String(wid) === String(user.id)) {
 									userInWaitlist = true;
+									userWaitlistPosition = index + 1;
 								}
 							});
 						}
@@ -174,31 +205,33 @@
 								<%= rideStatusLabel %>
 							</div>
 							<h4><%= carpool.carName %></h4>
-							<p><strong>From:</strong> <%= carpool.location %></p>
-							<p>
-								<strong>Time:</strong>
-								<%= rideTime.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) %>
-							</p>
-							<p><strong>Price:</strong> ₹<%= carpool.price %></p>
+							<div class="ride-meta-list">
+								<p class="ride-meta-item"><strong>📍 From:</strong> <%= carpool.location %></p>
+								<p class="ride-meta-item">
+									<strong>Time:</strong>
+									<%= rideTime.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) %>
+								</p>
+								<p class="ride-meta-item"><strong>Price:</strong> ₹<%= carpool.price %></p>
+							</div>
 
 							<%
 								const seatsFree = (carpool.totalSeats || 0) - (carpool.bookedSeats || 0);
 							%>
 
-							<p><strong>Seats Available:</strong> <%= seatsFree %>/<%= carpool.totalSeats %></p>
-							<p><strong>Driver:</strong> <%= carpool.userId && carpool.userId.name ? carpool.userId.name : 'Driver' %></p>
-							<p><strong>Preference:</strong> <%= carpool.gender %></p>
+							<p class="ride-meta-item"><strong>Seats:</strong> <%= seatsFree %>/<%= carpool.totalSeats %></p>
+							<p class="ride-meta-item"><strong>Driver:</strong> <%= carpool.userId && carpool.userId.name ? carpool.userId.name : 'Driver' %></p>
+							<p class="ride-meta-item"><strong>Preference:</strong> <%= carpool.gender %></p>
 
 							<% if (isAdmin || isOwner) { %>
-								<p><strong>Booked By:</strong> <%= bookedUsers.length > 0 ? bookedUsers.join(', ') : 'No bookings yet' %></p>
-								<p><strong>Waitlist:</strong> <%= waitlistedUsers.length > 0 ? waitlistedUsers.join(', ') : 'No one in waitlist' %></p>
+								<p class="ride-meta-item"><strong>Booked By:</strong> <%= bookedUsers.length > 0 ? bookedUsers.join(', ') : 'No bookings yet' %></p>
+								<p class="ride-meta-item"><strong>Waitlist:</strong> <%= waitlistedUsers.length > 0 ? waitlistedUsers.join(', ') : 'No one in waitlist' %></p>
 							<% } %>
 						</div>
 
 						<div class="card-footer">
 							<% if (user.role === 'admin') { %>
-								<form action="/admin/offers/<%= carpool._id %>?_method=DELETE" method="POST">
-									<button class="btn btn-danger">Delete (Admin)</button>
+								<form action="/admin/offers/<%= carpool._id %>?_method=DELETE" method="POST" data-toast-message="Offer removed successfully">
+									<button class="btn btn-danger" data-loading-text="Deleting...">Delete (Admin)</button>
 								</form>
 							<% } else { %>
 								<%
@@ -221,35 +254,41 @@
 										<%= userBooking.seats || 1 %> seat
 									</p>
 
-									<form action="/carpools/<%= carpool._id %>/cancel" method="POST">
-										<button class="btn btn-danger">Cancel Booking</button>
+									<form action="/carpools/<%= carpool._id %>/cancel" method="POST" data-toast-message="Booking cancelled">
+										<button class="btn btn-danger" data-loading-text="Cancelling...">Cancel Booking</button>
 									</form>
+
+									<a href="/chat/<%= carpool._id %>" class="btn btn-secondary action-secondary">Chat</a>
 								<% } else if (availableSeats > 0) { %>
-									<form action="/carpools/<%= carpool._id %>/book" method="POST" style="display:flex;gap:8px;">
+									<form action="/carpools/<%= carpool._id %>/book" method="POST" class="book-form" data-toast-message="Booking request submitted">
 										<select name="seats">
 											<% for (let i = 1; i <= availableSeats; i++) { %>
 												<option value="<%= i %>"><%= i %> seat<%= i > 1 ? 's' : '' %></option>
 											<% } %>
 										</select>
 
-										<button class="btn btn-primary">Book</button>
+										<button class="btn btn-primary" data-loading-text="Booking...">Book</button>
 									</form>
+									<a href="/chat/<%= carpool._id %>" class="btn btn-secondary action-secondary">Chat</a>
 								<% } else if (userInWaitlist) { %>
-									<button class="btn" disabled>⏳ Waitlisted</button>
+									<button class="btn" disabled>Waitlisted</button>
+									<% if (userWaitlistPosition) { %>
+										<p class="booked-info"><strong>Your waitlist position:</strong> #<%= userWaitlistPosition %></p>
+									<% } %>
+									<a href="/chat/<%= carpool._id %>" class="btn btn-secondary action-secondary">Chat</a>
 								<% } else { %>
-									<form action="/carpools/<%= carpool._id %>/waitlist" method="POST" style="display:flex;gap:8px;">
+									<form action="/carpools/<%= carpool._id %>/waitlist" method="POST" class="book-form" data-toast-message="Added to waitlist">
 										<input type="hidden" name="seats" value="1" />
-										<button class="btn btn-secondary">Join Waitlist</button>
+										<button class="btn btn-primary" data-loading-text="Joining...">Join Waitlist</button>
 									</form>
+									<a href="/chat/<%= carpool._id %>" class="btn btn-secondary action-secondary">Chat</a>
 								<% } %>
 							<% } %>
-
-							<a href="/chat/<%= carpool._id %>" class="btn btn-secondary">Chat</a>
 						</div>
 					</div>
 				<% }) %>
 			<% } else { %>
-				<p style="text-align:center;grid-column:1/-1;">No carpool offers available at the moment.</p>
+				<p style="text-align:center;grid-column:1/-1;">No carpool offers match your current filters.</p>
 			<% } %>
 		</div>
 	</div>

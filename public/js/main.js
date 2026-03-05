@@ -1,40 +1,81 @@
-// This script will run on the chat.ejs page to handle real-time messaging.
 document.addEventListener('DOMContentLoaded', () => {
-    const chatForm = document.getElementById('chat-form');
-    const messageInput = document.getElementById('message-input');
-    const chatBox = document.getElementById('chat-box');
+    const navToggle = document.querySelector('.nav-toggle');
+    const navLinks = document.querySelector('.nav-links');
+    const notifMenu = document.querySelector('.notif-menu');
+    const notifTrigger = document.querySelector('.notif-trigger');
 
-    // Establish WebSocket connection
-    const ws = new WebSocket('ws://localhost:3000'); // Use wss for production
+    if (navToggle && navLinks) {
+        navToggle.addEventListener('click', () => {
+            const isOpen = navLinks.classList.toggle('open');
+            navToggle.setAttribute('aria-expanded', String(isOpen));
+        });
+    }
 
-    ws.onopen = () => {
-        console.log('Connected to WebSocket server');
-    };
+    if (notifMenu && notifTrigger) {
+        notifTrigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            const isOpen = notifMenu.classList.toggle('open');
+            notifTrigger.setAttribute('aria-expanded', String(isOpen));
+        });
 
-    ws.onmessage = (event) => {
-        // Append new messages to the chat box
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('message');
-        messageElement.textContent = event.data;
-        chatBox.appendChild(messageElement);
-        chatBox.scrollTop = chatBox.scrollHeight; // Auto-scroll to the bottom
-    };
+        document.addEventListener('click', (event) => {
+            if (!notifMenu.contains(event.target)) {
+                notifMenu.classList.remove('open');
+                notifTrigger.setAttribute('aria-expanded', 'false');
+            }
+        });
 
-    ws.onclose = () => {
-        console.log('Disconnected from WebSocket server');
-    };
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                notifMenu.classList.remove('open');
+                notifTrigger.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
 
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-    };
-
-    // Handle form submission to send messages
-    chatForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const message = messageInput.value.trim();
-        if (message && ws.readyState === WebSocket.OPEN) {
-            ws.send(message);
-            messageInput.value = ''; // Clear the input field
+    const currentPath = window.location.pathname;
+    document.querySelectorAll('.nav-links > li > a[href]').forEach((link) => {
+        const href = link.getAttribute('href');
+        if (!href || href === '#' || href === 'javascript:void(0)') return;
+        if (href === '/' ? currentPath === '/' : currentPath.startsWith(href)) {
+            link.classList.add('is-active');
         }
+    });
+
+    const stack = document.createElement('div');
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+
+    function showToast(message) {
+        if (!message) return;
+        const item = document.createElement('div');
+        item.className = 'toast-item';
+        item.textContent = message;
+        stack.appendChild(item);
+        setTimeout(() => {
+            item.remove();
+        }, 2200);
+    }
+
+    const pendingToast = sessionStorage.getItem('pendingToast');
+    if (pendingToast) {
+        showToast(pendingToast);
+        sessionStorage.removeItem('pendingToast');
+    }
+
+    document.querySelectorAll('form').forEach((form) => {
+        form.addEventListener('submit', () => {
+            const toastMessage = form.getAttribute('data-toast-message');
+            if (toastMessage) {
+                sessionStorage.setItem('pendingToast', toastMessage);
+            }
+
+            const submitButton = form.querySelector('button[type="submit"]');
+            if (submitButton) {
+                const loadingText = submitButton.getAttribute('data-loading-text');
+                if (loadingText) submitButton.textContent = loadingText;
+                submitButton.disabled = true;
+            }
+        });
     });
 });

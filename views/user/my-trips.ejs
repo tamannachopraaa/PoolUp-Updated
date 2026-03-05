@@ -1,0 +1,101 @@
+<div class="page-container">
+  <div class="page-header" style="text-align:center;">
+    <h2>My Trips</h2>
+    <h3>Track your offered, booked, waitlisted and completed rides</h3>
+  </div>
+
+  <section class="trips-section">
+    <h4 class="trips-heading">Offered (Upcoming)</h4>
+    <div class="carpool-grid">
+      <% if (offered && offered.length > 0) { %>
+        <% offered.forEach((carpool) => { %>
+          <div class="carpool-card">
+            <div class="ride-status upcoming">Upcoming</div>
+            <h4><%= carpool.carName %></h4>
+            <p><strong>From:</strong> <%= carpool.location %></p>
+            <p><strong>Time:</strong> <%= new Date(carpool.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) %></p>
+            <p><strong>Price:</strong> ₹<%= carpool.price %></p>
+            <p><strong>Seats:</strong> <%= (carpool.totalSeats || 0) - (carpool.bookedSeats || 0) %>/<%= carpool.totalSeats %></p>
+            <div class="card-footer">
+              <a href="/chat/<%= carpool._id %>" class="btn btn-secondary">Chat</a>
+            </div>
+          </div>
+        <% }) %>
+      <% } else { %>
+        <p style="grid-column:1 / -1;">No upcoming offered rides.</p>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="trips-section">
+    <h4 class="trips-heading">Booked (Upcoming)</h4>
+    <div class="carpool-grid">
+      <% if (booked && booked.length > 0) { %>
+        <% booked.forEach((carpool) => { %>
+          <% const myBooking = (carpool.bookedBy || []).find((b) => String(b.user && (b.user._id || b.user)) === String(user.id)); %>
+          <div class="carpool-card">
+            <div class="ride-status upcoming">Upcoming</div>
+            <h4><%= carpool.carName %></h4>
+            <p><strong>From:</strong> <%= carpool.location %></p>
+            <p><strong>Time:</strong> <%= new Date(carpool.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) %></p>
+            <p><strong>Driver:</strong> <%= carpool.userId && carpool.userId.name ? carpool.userId.name : 'Driver' %></p>
+            <p><strong>You booked:</strong> <%= myBooking && myBooking.seats ? myBooking.seats : 1 %> seat(s)</p>
+            <div class="card-footer">
+              <form action="/carpools/<%= carpool._id %>/cancel" method="POST" data-toast-message="Booking cancelled">
+                <button class="btn btn-danger" data-loading-text="Cancelling...">Cancel Booking</button>
+              </form>
+              <a href="/chat/<%= carpool._id %>" class="btn btn-secondary">Chat</a>
+            </div>
+          </div>
+        <% }) %>
+      <% } else { %>
+        <p style="grid-column:1 / -1;">No upcoming booked rides.</p>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="trips-section">
+    <h4 class="trips-heading">Waitlisted</h4>
+    <div class="carpool-grid">
+      <% if (waitlisted && waitlisted.length > 0) { %>
+        <% waitlisted.forEach((carpool) => { %>
+          <%
+            const orderedWaitlist = [...(carpool.waitlist || [])].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
+            const myIndex = orderedWaitlist.findIndex((w) => String(w.user && (w.user._id || w.user)) === String(user.id));
+          %>
+          <div class="carpool-card">
+            <div class="ride-status upcoming">Waitlisted</div>
+            <h4><%= carpool.carName %></h4>
+            <p><strong>From:</strong> <%= carpool.location %></p>
+            <p><strong>Time:</strong> <%= new Date(carpool.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) %></p>
+            <p><strong>Your position:</strong> #<%= myIndex >= 0 ? myIndex + 1 : '-' %></p>
+            <div class="card-footer">
+              <a href="/chat/<%= carpool._id %>" class="btn btn-secondary">Chat</a>
+            </div>
+          </div>
+        <% }) %>
+      <% } else { %>
+        <p style="grid-column:1 / -1;">You are not in any waitlist currently.</p>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="trips-section">
+    <h4 class="trips-heading">Completed</h4>
+    <div class="carpool-grid">
+      <% if (completed && completed.length > 0) { %>
+        <% completed.forEach((carpool) => { %>
+          <div class="carpool-card">
+            <div class="ride-status completed">Completed</div>
+            <h4><%= carpool.carName %></h4>
+            <p><strong>From:</strong> <%= carpool.location %></p>
+            <p><strong>Time:</strong> <%= new Date(carpool.time).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) %></p>
+            <p><strong>Price:</strong> ₹<%= carpool.price %></p>
+          </div>
+        <% }) %>
+      <% } else { %>
+        <p style="grid-column:1 / -1;">No completed rides yet.</p>
+      <% } %>
+    </div>
+  </section>
+</div>

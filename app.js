@@ -248,8 +248,13 @@ app.delete('/admin/offers/:id', auth, async (req, res) => {
 
 app.get('/', async (req, res) => {
   try {
+    const filters = {
+      route: (req.query.route || '').trim(),
+      status: (req.query.status || 'all').trim(),
+    };
+
     if (!req.user) {
-      return res.render('home', { title: 'Welcome', carpools: [] });
+      return res.render('home', { title: 'Welcome', carpools: [], filters });
     }
 
     const cached = await redisGet('carpools:list');
@@ -257,6 +262,7 @@ app.get('/', async (req, res) => {
       return res.render('home', {
         title: 'Dashboard',
         carpools: JSON.parse(cached),
+        filters,
       });
     }
 
@@ -267,10 +273,76 @@ app.get('/', async (req, res) => {
       .populate('waitlist.user', 'name');
 
     await redisSetEx('carpools:list', 30, JSON.stringify(carpools));
-    res.render('home', { title: 'Dashboard', carpools });
+    res.render('home', { title: 'Dashboard', carpools, filters });
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');
+  }
+});
+
+app.get('/my-trips', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    const userId = String(req.user.id);
+
+    const carpools = await Carpool.find({
+      $or: [
+        { userId: req.user.id },
+        { 'bookedBy.user': req.user.id },
+        { 'waitlist.user': req.user.id },
+      ],
+    })
+      .sort({ time: 1 })
+      .populate('userId', 'name email')
+      .populate('bookedBy.user', 'name')
+      .populate('waitlist.user', 'name')
+      .lean();
+
+    const offered = [];
+    const booked = [];
+    const waitlisted = [];
+    const completed = [];
+
+    for (const carpool of carpools) {
+      const rideTime = new Date(carpool.time);
+      const isOwner = carpool.userId && String(carpool.userId._id || carpool.userId) === userId;
+      const hasBooked = (carpool.bookedBy || []).some(
+        booking => String(booking.user?._id || booking.user) === userId
+      );
+      const hasWaitlist = (carpool.waitlist || []).some(
+        entry => String(entry.user?._id || entry.user) === userId
+      );
+
+      if (hasWaitlist && rideTime > now) {
+        waitlisted.push(carpool);
+      }
+
+      if (isOwner && rideTime > now) {
+        offered.push(carpool);
+        continue;
+      }
+
+      if (hasBooked && rideTime > now) {
+        booked.push(carpool);
+        continue;
+      }
+
+      if ((isOwner || hasBooked) && rideTime <= now) {
+        completed.push(carpool);
+      }
+    }
+
+    return res.render('user/my-trips', {
+      title: 'My Trips',
+      offered,
+      booked,
+      waitlisted,
+      completed,
+      now,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send('Failed to load trips');
   }
 });
 
