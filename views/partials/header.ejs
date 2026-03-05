@@ -10,6 +10,40 @@
                 <% } else { %>
                     <li><a href="/carpools/new">Create Offer</a></li>
                 <% } %>
+                <li class="notif-menu">
+                    <a href="javascript:void(0)" class="notif-trigger" title="Notifications"><span class="notif-icon">🔔</span><span>Notifications</span><% if (unreadNotifications > 0) { %><span class="notif-count"><%= unreadNotifications %></span><% } %></a>
+                    <div class="notif-dropdown">
+                        <div class="notif-head">
+                            <strong>Notifications</strong>
+                            <% if (unreadNotifications > 0) { %>
+                                <form action="/notifications/read-all" method="POST">
+                                    <button type="submit" class="notif-readall">Mark all read</button>
+                                </form>
+                            <% } %>
+                        </div>
+                        <% if (notifications && notifications.length > 0) { %>
+                            <ul class="notif-list">
+                                <% notifications.forEach((item) => { %>
+                                    <li class="notif-item <%= item.isRead ? 'read' : 'unread' %>">
+                                        <a href="<%= item.link || '/' %>" class="notif-message"><%= item.message %></a>
+                                        <div class="notif-meta">
+                                            <span><%= item.createdAt ? new Date(item.createdAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '' %></span>
+                                            <% if (!item.isRead) { %>
+                                                <form action="/notifications/<%= item._id %>/read" method="POST">
+                                                    <button type="submit" class="notif-mark">Mark as read</button>
+                                                </form>
+                                            <% } else { %>
+                                                <span class="notif-read-label">Read</span>
+                                            <% } %>
+                                        </div>
+                                    </li>
+                                <% }) %>
+                            </ul>
+                        <% } else { %>
+                            <p class="notif-empty">No notifications yet.</p>
+                        <% } %>
+                    </div>
+                </li>
                 <li><a href="/logout">Logout</a></li>
             <% } else { %>
                 <li><a href="/auth/login-register">Login / Register</a></li>

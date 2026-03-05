@@ -48,7 +48,24 @@ const carpoolSchema = new mongoose.Schema({
         default: 1,
         min: 1
     }
-}]
+}],
+    waitlist: [{
+        user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true,
+        },
+        seats: {
+            type: Number,
+            required: true,
+            default: 1,
+            min: 1,
+        },
+        joinedAt: {
+            type: Date,
+            default: Date.now,
+        },
+    }]
 }, {
     // This automatically adds `createdAt` and `updatedAt` fields
     timestamps: true 

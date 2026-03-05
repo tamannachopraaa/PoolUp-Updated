@@ -152,14 +152,31 @@ app.set('layout', 'layouts/main');
 const User = require('./models/User');
 const Carpool = require('./models/Carpool');
 const Chat = require('./models/Chat');
+const Notification = require('./models/Notification');
 const { auth } = require('./middleware/auth');
 
+async function createNotification(userId, type, message, link = '/') {
+  if (!userId) return;
+  try {
+    await Notification.create({
+      user: userId,
+      type,
+      message,
+      link,
+    });
+  } catch (err) {
+    console.error('Notification create failed:', err.message);
+  }
+}
+
 // ================== GLOBAL AUTH ==================
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const token = req.cookies.token;
   if (!token) {
     req.user = null;
     res.locals.user = null;
+    res.locals.notifications = [];
+    res.locals.unreadNotifications = 0;
     return next();
   }
 
@@ -167,9 +184,22 @@ app.use((req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
     res.locals.user = decoded;
+
+    const [notifications, unreadNotifications] = await Promise.all([
+      Notification.find({ user: decoded.id })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
+      Notification.countDocuments({ user: decoded.id, isRead: false }),
+    ]);
+
+    res.locals.notifications = notifications;
+    res.locals.unreadNotifications = unreadNotifications;
   } catch {
     req.user = null;
     res.locals.user = null;
+    res.locals.notifications = [];
+    res.locals.unreadNotifications = 0;
   }
   next();
 });
@@ -233,7 +263,8 @@ app.get('/', async (req, res) => {
     const carpools = await Carpool.find()
       .sort({ createdAt: -1 })
       .populate('userId', 'name email')
-      .populate('bookedBy.user', 'name');
+      .populate('bookedBy.user', 'name')
+      .populate('waitlist.user', 'name');
 
     await redisSetEx('carpools:list', 30, JSON.stringify(carpools));
     res.render('home', { title: 'Dashboard', carpools });
@@ -328,6 +359,34 @@ app.get('/logout', (req, res) => {
   res.redirect('/auth/login-register');
 });
 
+app.post('/notifications/:id/read', auth, async (req, res) => {
+  try {
+    await Notification.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      { $set: { isRead: true } }
+    );
+  } catch (err) {
+    console.error('Failed to mark notification as read:', err.message);
+  }
+
+  const back = req.get('referer') || '/';
+  res.redirect(back);
+});
+
+app.post('/notifications/read-all', auth, async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { user: req.user.id, isRead: false },
+      { $set: { isRead: true } }
+    );
+  } catch (err) {
+    console.error('Failed to mark all notifications as read:', err.message);
+  }
+
+  const back = req.get('referer') || '/';
+  res.redirect(back);
+});
+
 // ================== CARPOOL ==================
 app.get('/carpools/new', auth, (req, res) => {
   res.render('user/create-offer', { title: 'Create Offer' });
@@ -352,6 +411,7 @@ app.post('/carpools', auth, async (req, res) => {
       totalSeats,
       bookedSeats: 0,
       bookedBy: [],
+      waitlist: [],
     });
 
     await redisDel('carpools:list');
@@ -370,7 +430,7 @@ app.post('/carpools/:id/book', auth, async (req, res) => {
       return res.status(400).send('Invalid seats value');
     }
 
-    const carpool = await Carpool.findById(req.params.id).select('userId time');
+    const carpool = await Carpool.findById(req.params.id).select('userId time bookedBy waitlist totalSeats bookedSeats');
 
     if (!carpool) return res.status(404).send('Carpool not found');
     if (carpool.userId.equals(req.user.id)) {
@@ -378,6 +438,20 @@ app.post('/carpools/:id/book', auth, async (req, res) => {
     }
     if (new Date(carpool.time) < new Date(Date.now() - 60_000)) {
       return res.status(400).send('Cannot book expired ride');
+    }
+
+    const alreadyBooked = carpool.bookedBy?.some(
+      b => String(b.user) === String(req.user.id)
+    );
+    if (alreadyBooked) {
+      return res.status(400).send('You already booked this ride');
+    }
+
+    const alreadyWaitlisted = carpool.waitlist?.some(
+      w => String(w.user) === String(req.user.id)
+    );
+    if (alreadyWaitlisted) {
+      return res.status(400).send('You are already in the waitlist for this ride');
     }
 
     const updated = await Carpool.findOneAndUpdate(
@@ -399,11 +473,82 @@ app.post('/carpools/:id/book', auth, async (req, res) => {
       return res.status(400).send(`Only ${availableSeats} seat(s) available.`);
     }
 
+    await Carpool.findByIdAndUpdate(req.params.id, {
+      $pull: { waitlist: { user: req.user.id } },
+    });
+
+    await createNotification(
+      req.user.id,
+      'booking',
+      'Your booking is confirmed.',
+      '/'
+    );
+
     await redisDel('carpools:list');
     res.redirect('/');
   } catch (err) {
     console.error(err);
     res.status(500).send('Booking failed');
+  }
+});
+
+app.post('/carpools/:id/waitlist', auth, async (req, res) => {
+  try {
+    const seats = Number.parseInt(req.body.seats || '1', 10);
+    if (!Number.isInteger(seats) || seats < 1) {
+      return res.status(400).send('Invalid seats value');
+    }
+
+    const carpool = await Carpool.findById(req.params.id).select('userId time bookedBy waitlist totalSeats bookedSeats');
+    if (!carpool) return res.status(404).send('Carpool not found');
+
+    if (carpool.userId.equals(req.user.id)) {
+      return res.status(400).send('You cannot join waitlist for your own offer.');
+    }
+    if (new Date(carpool.time) < new Date(Date.now() - 60_000)) {
+      return res.status(400).send('Cannot join waitlist for expired ride');
+    }
+
+    const availableSeats = Math.max((carpool.totalSeats || 0) - (carpool.bookedSeats || 0), 0);
+    if (availableSeats > 0) {
+      return res.status(400).send('Seats are available. Please book directly.');
+    }
+
+    const alreadyBooked = carpool.bookedBy?.some(
+      b => String(b.user) === String(req.user.id)
+    );
+    if (alreadyBooked) {
+      return res.status(400).send('You already booked this ride');
+    }
+
+    const alreadyWaitlisted = carpool.waitlist?.some(
+      w => String(w.user) === String(req.user.id)
+    );
+    if (alreadyWaitlisted) {
+      return res.status(400).send('You are already in the waitlist for this ride');
+    }
+
+    await Carpool.findByIdAndUpdate(req.params.id, {
+      $push: {
+        waitlist: {
+          user: req.user.id,
+          seats,
+          joinedAt: new Date(),
+        },
+      },
+    });
+
+    await createNotification(
+      carpool.userId,
+      'waitlist',
+      'A user joined the waitlist for your ride.',
+      '/'
+    );
+
+    res.redirect('/');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Failed to join waitlist');
   }
 });
 
@@ -417,10 +562,61 @@ app.post('/carpools/:id/cancel', auth, async (req, res) => {
     );
     if (!booking) return res.redirect('/');
 
-    await Carpool.findByIdAndUpdate(req.params.id, {
+    const updatedAfterCancel = await Carpool.findByIdAndUpdate(req.params.id, {
       $inc: { bookedSeats: -booking.seats },
       $pull: { bookedBy: { user: req.user.id } },
-    });
+    }, { new: true });
+
+    await createNotification(
+      req.user.id,
+      'booking',
+      'Your booking has been cancelled.',
+      '/'
+    );
+
+    if (updatedAfterCancel && updatedAfterCancel.waitlist && updatedAfterCancel.waitlist.length > 0) {
+      const sortedWaitlist = [...updatedAfterCancel.waitlist].sort(
+        (a, b) => new Date(a.joinedAt) - new Date(b.joinedAt)
+      );
+
+      let availableSeats = Math.max(updatedAfterCancel.totalSeats - updatedAfterCancel.bookedSeats, 0);
+      const promoted = [];
+
+      for (const entry of sortedWaitlist) {
+        if (entry.seats <= availableSeats) {
+          promoted.push(entry);
+          availableSeats -= entry.seats;
+        }
+      }
+
+      if (promoted.length > 0) {
+        const promotedUsers = promoted.map(entry => entry.user);
+        const totalPromotedSeats = promoted.reduce((sum, entry) => sum + entry.seats, 0);
+
+        await Carpool.findByIdAndUpdate(req.params.id, {
+          $inc: { bookedSeats: totalPromotedSeats },
+          $push: {
+            bookedBy: {
+              $each: promoted.map(entry => ({ user: entry.user, seats: entry.seats })),
+            },
+          },
+          $pull: {
+            waitlist: {
+              user: { $in: promotedUsers },
+            },
+          },
+        });
+
+        await Promise.all(
+          promoted.map(entry => createNotification(
+            entry.user,
+            'booking',
+            'A seat opened up and you were auto-booked from waitlist.',
+            '/'
+          ))
+        );
+      }
+    }
 
     await redisDel('carpools:list');
     res.redirect('/');

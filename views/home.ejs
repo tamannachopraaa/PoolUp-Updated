@@ -64,6 +64,8 @@
 					if (!rideBelongsToUser(carpool)) return;
 
 					const when = rideDate(carpool);
+					const ownerId = carpool.userId && (carpool.userId._id ? carpool.userId._id : carpool.userId);
+					const isOwner = ownerId && String(ownerId) === String(user.id);
 					const userHasBooked =
 						carpool.bookedBy &&
 						carpool.bookedBy.some((b) => {
@@ -73,7 +75,7 @@
 
 					if (when > now) {
 						upcomingRides++;
-					} else if (isAdmin || userHasBooked) {
+					} else if (isAdmin || isOwner || userHasBooked) {
 						completedRides++;
 					} else {
 						cancelledRides++;
@@ -99,13 +101,15 @@
 				</div>
 			</div>
 
-			<div class="summary-card">
-				<div class="summary-icon">↩️</div>
-				<div>
-					<p class="summary-label">Expired rides</p>
-					<p class="summary-value"><%= cancelledRides %></p>
+			<% if (!isAdmin) { %>
+				<div class="summary-card">
+					<div class="summary-icon">↩️</div>
+					<div>
+						<p class="summary-label">Expired rides</p>
+						<p class="summary-value"><%= cancelledRides %></p>
+					</div>
 				</div>
-			</div>
+			<% } %>
 		</div>
 
 		<% if (user.role !== 'admin') { %>
@@ -120,12 +124,19 @@
 					<%
 						const rideTime = rideDate(carpool);
 						const isExpiredRide = rideTime <= now;
+						const ownerId = carpool.userId && (carpool.userId._id ? carpool.userId._id : carpool.userId);
+						const isOwner = ownerId && String(ownerId) === String(user.id);
 						let userHasBooked = false;
 						let userBooking = null;
+						let userInWaitlist = false;
+						const bookedUsers = [];
+						const waitlistedUsers = [];
 
 						if (carpool.bookedBy) {
 							carpool.bookedBy.forEach((b) => {
 								const bid = b.user ? (b.user._id ? b.user._id : b.user) : null;
+								const bookedName = b.user && b.user.name ? b.user.name : 'User';
+								bookedUsers.push(`${bookedName} (${b.seats || 1})`);
 
 								if (bid && String(bid) === String(user.id)) {
 									userHasBooked = true;
@@ -134,10 +145,21 @@
 							});
 						}
 
+						if (carpool.waitlist) {
+							carpool.waitlist.forEach((w) => {
+								const wid = w.user ? (w.user._id ? w.user._id : w.user) : null;
+								const waitlistName = w.user && w.user.name ? w.user.name : 'User';
+								waitlistedUsers.push(`${waitlistName} (${w.seats || 1})`);
+								if (wid && String(wid) === String(user.id)) {
+									userInWaitlist = true;
+								}
+							});
+						}
+
 						let rideStatus = 'upcoming';
 						let rideStatusLabel = '🟦 Upcoming';
 
-						if (isExpiredRide && userHasBooked) {
+						if (isExpiredRide && (isAdmin || isOwner || userHasBooked)) {
 							rideStatus = 'completed';
 							rideStatusLabel = '✅ Completed';
 						} else if (isExpiredRide) {
@@ -166,6 +188,11 @@
 							<p><strong>Seats Available:</strong> <%= seatsFree %>/<%= carpool.totalSeats %></p>
 							<p><strong>Driver:</strong> <%= carpool.userId && carpool.userId.name ? carpool.userId.name : 'Driver' %></p>
 							<p><strong>Preference:</strong> <%= carpool.gender %></p>
+
+							<% if (isAdmin || isOwner) { %>
+								<p><strong>Booked By:</strong> <%= bookedUsers.length > 0 ? bookedUsers.join(', ') : 'No bookings yet' %></p>
+								<p><strong>Waitlist:</strong> <%= waitlistedUsers.length > 0 ? waitlistedUsers.join(', ') : 'No one in waitlist' %></p>
+							<% } %>
 						</div>
 
 						<div class="card-footer">
@@ -175,8 +202,6 @@
 								</form>
 							<% } else { %>
 								<%
-									const ownerId = carpool.userId && (carpool.userId._id ? carpool.userId._id : carpool.userId);
-									const isOwner = ownerId && String(ownerId) === String(user.id);
 									const availableSeats = (carpool.totalSeats || 0) - (carpool.bookedSeats || 0);
 								%>
 
@@ -209,8 +234,13 @@
 
 										<button class="btn btn-primary">Book</button>
 									</form>
+								<% } else if (userInWaitlist) { %>
+									<button class="btn" disabled>⏳ Waitlisted</button>
 								<% } else { %>
-									<button class="btn" disabled>Fully Booked</button>
+									<form action="/carpools/<%= carpool._id %>/waitlist" method="POST" style="display:flex;gap:8px;">
+										<input type="hidden" name="seats" value="1" />
+										<button class="btn btn-secondary">Join Waitlist</button>
+									</form>
 								<% } %>
 							<% } %>
 
@@ -231,10 +261,39 @@
 			</h1>
 
 			<p style="font-size:1.2rem;max-width:550px;margin:1rem auto 2.5rem;">
-				The smart, affordable, and eco-friendly way for students to commute.
+				The smart, affordable, and eco-friendly way for students to commute. Find your ride or offer a seat in just a few clicks.
 			</p>
 
 			<a href="/auth/login-register" class="btn btn-primary">Get Started</a>
+		</div>
+
+		<div class="benefits-section">
+			<div class="page-header" style="margin-bottom:3rem;">
+				<h2 style="font-size:2.5rem;">Why PoolUp?</h2>
+			</div>
+
+			<div class="carpool-grid">
+				<div class="carpool-card">
+					<h4>💰 Save Money</h4>
+					<p>Split fuel and toll costs with fellow students. It's the most affordable way to get to and from campus every day.</p>
+				</div>
+
+				<div class="carpool-card">
+					<h4>🤝 Connect &amp; Network</h4>
+					<p>Meet new people from different courses and build your university network. Your next ride could be with your next study partner!</p>
+				</div>
+
+				<div class="carpool-card">
+					<h4>🌍 Eco-Friendly Travel</h4>
+					<p>Reduce traffic congestion and lower your carbon footprint. Every shared ride helps create a greener campus environment.</p>
+				</div>
+			</div>
+		</div>
+
+		<div class="cta-section">
+			<h2>Join Hundreds of Students</h2>
+			<p>Ready to make your commute easier, cheaper, and more enjoyable? Sign up in seconds and find your perfect ride today.</p>
+			<a href="/auth/login-register" class="btn btn-primary">Sign Up Now</a>
 		</div>
 	</div>
 <% } %>
