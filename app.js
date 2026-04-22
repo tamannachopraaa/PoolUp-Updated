@@ -16,7 +16,12 @@ const redis = require('redis');
 dotenv.config();
 
 // Initialize email service AFTER dotenv.config()
-require('./utils/mailer');
+const {
+  sendAdminNotification,
+  sendBookingConfirmation,
+  sendDriverNotification,
+} = require('./utils/mailer');
+const { initializeAdminUser } = require('./config/adminSetup');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -36,7 +41,10 @@ if (!mongoUri) {
 if (!isTestEnv) {
   mongoose
     .connect(mongoUri)
-    .then(() => console.log('✅ MongoDB Connected'))
+    .then(async () => {
+      console.log('✅ MongoDB Connected');
+      await initializeAdminUser();
+    })
     .catch(err => {
       console.error('❌ MongoDB Error:', err);
       process.exit(1);
@@ -50,15 +58,33 @@ let publisher = null;
 let subscriber = null;
 let cacheClient = null;
 const subscribedRooms = new Set();
+let redisErrorLogged = false;
+
+const redisClientOptions = redisUrl
+  ? {
+      url: redisUrl,
+      socket: {
+        connectTimeout: 3000,
+        reconnectStrategy: () => false,
+      },
+      disableOfflineQueue: true,
+    }
+  : null;
 
 if (!isTestEnv && redisUrl) {
-  publisher = redis.createClient({ url: redisUrl });
-  subscriber = redis.createClient({ url: redisUrl });
-  cacheClient = redis.createClient({ url: redisUrl });
+  publisher = redis.createClient(redisClientOptions);
+  subscriber = redis.createClient(redisClientOptions);
+  cacheClient = redis.createClient(redisClientOptions);
 
-  publisher.on('error', err => console.error('❌ Redis Publisher Error:', err.message));
-  subscriber.on('error', err => console.error('❌ Redis Subscriber Error:', err.message));
-  cacheClient.on('error', err => console.error('❌ Redis Cache Error:', err.message));
+  const handleRedisError = (clientName, err) => {
+    if (redisErrorLogged) return;
+    redisErrorLogged = true;
+    console.error(`Redis ${clientName} error:`, err.message);
+  };
+
+  publisher.on('error', err => handleRedisError('publisher', err));
+  subscriber.on('error', err => handleRedisError('subscriber', err));
+  cacheClient.on('error', err => handleRedisError('cache', err));
 
   (async () => {
     try {
@@ -245,6 +271,30 @@ app.delete('/admin/offers/:id', auth, async (req, res) => {
   res.redirect('/admin/manage-offers');
 });
 
+app.delete('/admin/users/:id', auth, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).send('Forbidden');
+  }
+
+  if (String(req.params.id) === String(req.user.id)) {
+    return res.status(400).send('Admin cannot delete own account.');
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    return res.status(404).send('User not found.');
+  }
+
+  if (user.role === 'admin') {
+    return res.status(400).send('Admin users cannot be deleted.');
+  }
+
+  await Carpool.deleteMany({ userId: user._id });
+  await User.findByIdAndDelete(req.params.id);
+  await redisDel('carpools:list');
+  res.redirect('/admin/manage-users');
+});
+
 
 
 
@@ -365,7 +415,18 @@ app.get('/login', (req, res) => {
 app.post('/auth/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    await User.create({ name, email, password });
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.render('auth/login-register', {
+        title: 'Login / Register',
+        error: 'Please enter a valid email address.',
+        message: null,
+      });
+    }
+
+    await User.create({ name, email: normalizedEmail, password });
 
     res.render('auth/login-register', {
       title: 'Login / Register',
@@ -385,7 +446,8 @@ app.post('/auth/register', async (req, res) => {
 app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
 
     if (!user || !(await user.comparePassword(password))) {
       return res.render('auth/login-register', {
@@ -476,7 +538,7 @@ app.post('/carpools', auth, async (req, res) => {
       return res.status(400).send('Ride time must be in future');
     }
 
-    await Carpool.create({
+    const createdCarpool = await Carpool.create({
       userId: req.user.id,
       carName,
       location,
@@ -489,8 +551,10 @@ app.post('/carpools', auth, async (req, res) => {
       waitlist: [],
     });
 
+    const adminMailSent = await sendAdminNotification(createdCarpool);
+
     await redisDel('carpools:list');
-    res.redirect('/');
+    res.redirect(`/?mail=${adminMailSent ? 'offer_mail_sent' : 'offer_mail_failed'}`);
   } catch (err) {
     console.error(err);
     res.status(500).send('Failed to create carpool');
@@ -552,6 +616,48 @@ app.post('/carpools/:id/book', auth, async (req, res) => {
       $pull: { waitlist: { user: req.user.id } },
     });
 
+    const [bookingUser, fullCarpool] = await Promise.all([
+      User.findById(req.user.id).select('name email'),
+      Carpool.findById(req.params.id).populate('userId', 'name email'),
+    ]);
+
+    const driver = fullCarpool?.userId;
+
+    const emailResults = [];
+
+    if (bookingUser?.email && fullCarpool) {
+      const passengerMailSent = await sendBookingConfirmation(
+        bookingUser.email,
+        bookingUser.name,
+        fullCarpool,
+        seats
+      );
+      emailResults.push(passengerMailSent);
+    }
+
+    if (driver?.email && fullCarpool && bookingUser?.name) {
+      const driverMailSent = await sendDriverNotification(
+        driver.email,
+        driver.name,
+        fullCarpool,
+        bookingUser.name,
+        seats
+      );
+      emailResults.push(driverMailSent);
+    }
+
+    const sentCount = emailResults.filter(Boolean).length;
+    const totalMailAttempts = emailResults.length;
+    let bookingMailStatus = 'booking_mail_skipped';
+
+    if (totalMailAttempts > 0 && sentCount === totalMailAttempts) {
+      bookingMailStatus = 'booking_mail_sent';
+    } else if (totalMailAttempts > 0 && sentCount > 0) {
+      bookingMailStatus = 'booking_mail_partial';
+    } else if (totalMailAttempts > 0) {
+      bookingMailStatus = 'booking_mail_failed';
+    }
+
     await createNotification(
       req.user.id,
       'booking',
@@ -560,7 +666,7 @@ app.post('/carpools/:id/book', auth, async (req, res) => {
     );
 
     await redisDel('carpools:list');
-    res.redirect('/');
+    res.redirect(`/?mail=${bookingMailStatus}`);
   } catch (err) {
     console.error(err);
     res.status(500).send('Booking failed');

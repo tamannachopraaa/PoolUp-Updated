@@ -63,6 +63,25 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.removeItem('pendingToast');
     }
 
+    const params = new URLSearchParams(window.location.search);
+    const mailStatus = params.get('mail');
+    const mailMessages = {
+        offer_mail_sent: 'Offer created and admin email sent.',
+        offer_mail_failed: 'Offer created, but admin email failed.',
+        booking_mail_sent: 'Booking confirmed and email sent.',
+        booking_mail_partial: 'Booking confirmed, but one email failed.',
+        booking_mail_failed: 'Booking confirmed, but email sending failed.',
+        booking_mail_skipped: 'Booking confirmed. No email recipient found.',
+    };
+
+    if (mailStatus && mailMessages[mailStatus]) {
+        showToast(mailMessages[mailStatus]);
+        params.delete('mail');
+        const query = params.toString();
+        const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
+
     document.querySelectorAll('form').forEach((form) => {
         form.addEventListener('submit', () => {
             const toastMessage = form.getAttribute('data-toast-message');

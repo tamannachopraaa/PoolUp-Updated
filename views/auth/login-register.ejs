@@ -9,7 +9,7 @@
 			<% if (typeof error !== 'undefined' && error) { %>
 				<div class="auth-alert error"><%= error %></div>
 			<% } %>
-			<form action="/auth/login" method="POST" class="auth-form" data-toast-message="Logged in successfully">
+			<form action="/auth/login" method="POST" class="auth-form">
 				<label class="field">
 					<span>Email</span>
 					<input type="email" name="email" required>
@@ -35,7 +35,7 @@
 			<% if (typeof message !== 'undefined' && message) { %>
 				<div class="auth-alert success"><%= message %></div>
 			<% } %>
-			<form action="/auth/register" method="POST" class="auth-form" data-toast-message="Account created successfully">
+			<form action="/auth/register" method="POST" class="auth-form">
 				<label class="field">
 					<span>Full name</span>
 					<input type="text" name="name" required>

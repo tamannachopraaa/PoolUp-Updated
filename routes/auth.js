@@ -17,7 +17,12 @@ router.post('/login', async (req, res) => {
             { expiresIn: '7d' } // Unified expiry
         );
 
-        res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
+        const isProduction = process.env.NODE_ENV === 'production';
+        res.cookie('token', token, { 
+            httpOnly: true, 
+            secure: isProduction,
+            sameSite: isProduction ? 'none' : 'lax'
+        });
         res.redirect('/');
     } catch (err) {
         res.status(500).send('Login error');

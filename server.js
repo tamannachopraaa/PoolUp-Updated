@@ -13,7 +13,7 @@ const mongooseOptions = {
 
 // This 'if' check is CRITICAL
 if (process.env.NODE_ENV !== 'test') {
-  mongoose.connect(process.env.MONGO_URI, mongooseOptions)
+  mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, mongooseOptions)
   .then(() => {
       console.log('MongoDB connected successfully');
       initializeAdminUser(); 
