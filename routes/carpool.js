@@ -27,6 +27,8 @@ router.post('/', auth, async (req, res) => {
 // Atomic Booking Logic
 router.post('/:id/book', auth, async (req, res) => {
     const seats = parseInt(req.body.seats || 1);
+    console.log(`\n📝 BOOKING REQUEST: Carpool ID=${req.params.id}, User=${req.user.id}, Seats=${seats}`);
+    
     try {
         const carpool = await Carpool.findOneAndUpdate(
             { 
@@ -41,35 +43,50 @@ router.post('/:id/book', auth, async (req, res) => {
             { new: true }
         ).populate('userId', 'email name');
 
-        if (!carpool) return res.status(400).send('Booking failed: Ride full or invalid.');
+        if (!carpool) {
+            console.log('❌ Booking failed: Ride full or invalid');
+            return res.status(400).send('Booking failed: Ride full or invalid.');
+        }
+        
+        console.log('✅ Booking saved to database');
         
         // Get booking user and driver details
         const bookingUser = await User.findById(req.user.id);
         const driver = await User.findById(carpool.userId);
         
-        console.log('🔔 Booking confirmed, sending emails...');
-        console.log('📧 Passenger email:', bookingUser?.email);
-        console.log('🚗 Driver email:', driver?.email);
+        console.log('🔔 Booking confirmed, preparing emails...');
+        console.log('📧 Passenger:', bookingUser?.name, `(${bookingUser?.email})`);
+        console.log('🚗 Driver:', driver?.name, `(${driver?.email})`);
         
         // Send confirmation email to passenger
         if (bookingUser && bookingUser.email) {
-            console.log(`📨 Sending booking confirmation to ${bookingUser.email}`);
-            await sendBookingConfirmation(bookingUser.email, bookingUser.name, carpool, seats);
+            try {
+                console.log(`📨 Sending booking confirmation to ${bookingUser.email}`);
+                await sendBookingConfirmation(bookingUser.email, bookingUser.name, carpool, seats);
+            } catch (emailErr) {
+                console.error('❌ Failed to send passenger email:', emailErr.message);
+            }
         } else {
             console.log('⚠️ Booking user email not found');
         }
         
         // Send notification email to driver
         if (driver && driver.email) {
-            console.log(`📨 Sending driver notification to ${driver.email}`);
-            await sendDriverNotification(driver.email, driver.name, carpool, bookingUser.name, seats);
+            try {
+                console.log(`📨 Sending driver notification to ${driver.email}`);
+                await sendDriverNotification(driver.email, driver.name, carpool, bookingUser.name, seats);
+            } catch (emailErr) {
+                console.error('❌ Failed to send driver email:', emailErr.message);
+            }
         } else {
             console.log('⚠️ Driver email not found');
         }
         
+        console.log('✅ Booking process completed\n');
         res.redirect('/');
     } catch (err) {
-        console.error('❌ Booking error:', err);
+        console.error('❌ Booking error:', err.message);
+        console.error('Stack:', err.stack);
         res.status(500).send('Server Error');
     }
 });
