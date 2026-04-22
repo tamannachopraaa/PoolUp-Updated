@@ -57,7 +57,7 @@ JWT_SECRET=a_very_secret_key_for_jwt
 
 ADMIN_EMAIL=admin@yourcollege.edu
 
-ADMIN_PASSWORD=your_secure_admin_password" > .env
+ADMIN_PASSWORD=your_secure_admin_password"
 
 # 4. Run the application
 node server.js
