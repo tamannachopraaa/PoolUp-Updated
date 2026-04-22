@@ -6,7 +6,7 @@ PoolUp is a dynamic web application designed to connect students from the same u
 ## 🌐 Live Demo
 
 
-[![Live Demo](https://img.shields.io/badge/Live-Demo-blueviolet)](https://poolup-d0p6.onrender.com/)
+[![Live Demo](https://img.shields.io/badge/Live-Demo-blueviolet)](https://poolup-updated.onrender.com/)
 
 🚗 **PoolUp** is live! Explore ride listings, book seats, and chat with drivers in real time.
 
