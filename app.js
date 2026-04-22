@@ -15,6 +15,9 @@ const redis = require('redis');
 // ================== CONFIG ==================
 dotenv.config();
 
+// Initialize email service AFTER dotenv.config()
+require('./utils/mailer');
+
 const app = express();
 app.set('trust proxy', 1);
 const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.JEST_WORKER_ID);

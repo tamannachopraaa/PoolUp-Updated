@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { auth } = require('../middleware/auth');
 const Carpool = require('../models/Carpool');
-const sendAdminNotification = require('../utils/mailer');
+const User = require('../models/User');
+const { sendAdminNotification, sendBookingConfirmation, sendDriverNotification } = require('../utils/mailer');
 
 // Create Carpool
 router.post('/', auth, async (req, res) => {
@@ -38,11 +39,37 @@ router.post('/:id/book', auth, async (req, res) => {
                 $push: { bookedBy: { user: req.user.id, seats } } 
             },
             { new: true }
-        );
+        ).populate('userId', 'email name');
 
         if (!carpool) return res.status(400).send('Booking failed: Ride full or invalid.');
+        
+        // Get booking user and driver details
+        const bookingUser = await User.findById(req.user.id);
+        const driver = await User.findById(carpool.userId);
+        
+        console.log('🔔 Booking confirmed, sending emails...');
+        console.log('📧 Passenger email:', bookingUser?.email);
+        console.log('🚗 Driver email:', driver?.email);
+        
+        // Send confirmation email to passenger
+        if (bookingUser && bookingUser.email) {
+            console.log(`📨 Sending booking confirmation to ${bookingUser.email}`);
+            await sendBookingConfirmation(bookingUser.email, bookingUser.name, carpool, seats);
+        } else {
+            console.log('⚠️ Booking user email not found');
+        }
+        
+        // Send notification email to driver
+        if (driver && driver.email) {
+            console.log(`📨 Sending driver notification to ${driver.email}`);
+            await sendDriverNotification(driver.email, driver.name, carpool, bookingUser.name, seats);
+        } else {
+            console.log('⚠️ Driver email not found');
+        }
+        
         res.redirect('/');
     } catch (err) {
+        console.error('❌ Booking error:', err);
         res.status(500).send('Server Error');
     }
 });
