@@ -18,6 +18,7 @@ PoolUp is a dynamic web application designed to connect students from the same u
 - **Offer & Book Rides**: Logged-in users can create carpool offers, detailing their car, route, time, and price. Other students can browse and book available seats.
 - **Dynamic Dashboard**: Central hub for users to view all available carpool offers. Drivers can see who has booked their ride, and passengers can cancel their bookings.
 - **Admin Management**: Special admin view allows monitoring and deleting any carpool offer.
+- **Notifications**: Automatic email notifications for bookings and ride offers, plus in-app notifications to keep users updated inside the dashboard.
 - **Real-Time Chat**: WebSocket-powered chat for direct coordination between passengers and drivers.
 - **Interactive UI**: Modern, futuristic front-end with a purple/blue theme, "glassmorphism" cards, subtle animations, and fully responsive design.
 
